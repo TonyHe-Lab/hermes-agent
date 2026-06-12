@@ -8,7 +8,7 @@ import logging
 import threading
 from typing import Callable, Optional
 
-from agent.auxiliary_client import call_llm
+from agent.auxiliary_client import call_llm, resolve_provider_client
 
 logger = logging.getLogger(__name__)
 
@@ -54,14 +54,36 @@ def generate_title(
     ]
 
     try:
-        response = call_llm(
-            task="title_generation",
-            messages=messages,
-            max_tokens=500,
-            temperature=0.3,
-            timeout=timeout,
-            main_runtime=main_runtime,
-        )
+        # Prefer the main runtime directly so title generation does not
+        # fall into the auxiliary provider chain and surface provider-specific
+        # subscription-key errors when a title backend is misconfigured.
+        if main_runtime and main_runtime.get("provider") and main_runtime.get("model"):
+            client, resolved_model = resolve_provider_client(
+                main_runtime.get("provider"),
+                main_runtime.get("model"),
+                base_url=main_runtime.get("base_url"),
+                api_key=main_runtime.get("api_key"),
+                api_mode=main_runtime.get("api_mode"),
+                main_runtime=main_runtime,
+            )
+            if client is not None:
+                response = client.chat.completions.create(
+                    messages=messages,
+                    max_tokens=500,
+                    temperature=0.3,
+                    timeout=timeout,
+                )
+            else:
+                raise RuntimeError("No main runtime client available for title generation")
+        else:
+            response = call_llm(
+                task="title_generation",
+                messages=messages,
+                max_tokens=500,
+                temperature=0.3,
+                timeout=timeout,
+                main_runtime=main_runtime,
+            )
         title = (response.choices[0].message.content or "").strip()
         # Clean up: remove quotes, trailing punctuation, prefixes like "Title: "
         title = title.strip('"\'')

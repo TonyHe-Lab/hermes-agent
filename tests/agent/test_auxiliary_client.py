@@ -90,6 +90,57 @@ class TestAuxiliaryMaxTokensParam:
             assert auxiliary_max_tokens_param(2048) == {"max_completion_tokens": 2048}
 
 
+class TestTitleGenerationMainRuntimeBypass:
+    def test_uses_main_runtime_client_when_available(self, monkeypatch):
+        from agent import title_generator as tg
+
+        captured = {}
+
+        class FakeClient:
+            def __init__(self):
+                self.chat = type('Chat', (), {
+                    'completions': type('Completions', (), {
+                        'create': lambda self, **kwargs: type('Resp', (), {
+                            'choices': [type('Choice', (), {
+                                'message': type('Msg', (), {'content': 'My Title'})()
+                            })()]
+                        })()
+                    })()
+                })()
+
+        def fake_resolve(*args, **kwargs):
+            captured['args'] = args
+            captured['kwargs'] = kwargs
+            return FakeClient(), 'gpt-5.4-mini'
+
+        monkeypatch.setattr(tg, 'resolve_provider_client', fake_resolve)
+        monkeypatch.setattr(tg, 'call_llm', lambda **kwargs: (_ for _ in ()).throw(AssertionError('fallback should not be used')))
+
+        result = tg.generate_title('hello', 'world', main_runtime={
+            'provider': 'zai',
+            'model': 'glm-5-turbo',
+            'base_url': 'https://api.z.ai/api/coding/paas/v4',
+            'api_key': 'k',
+            'api_mode': '',
+        })
+
+        assert result == 'My Title'
+        assert captured['args'][0] == 'zai'
+        assert captured['args'][1] == 'glm-5-turbo'
+
+
+class TestAuxiliaryAuthErrorsAreNotSilenced:
+    def test_401_missing_subscription_key_still_raises(self):
+        from agent.auxiliary_client import _is_transient_transport_error
+
+        class E(Exception):
+            status_code = 401
+            def __str__(self):
+                return "HTTP 401: Access denied due to missing subscription key"
+
+        assert _is_transient_transport_error(E()) is False
+
+
 class TestBuildCallKwargsMaxTokens:
     """_build_call_kwargs should not cap output by default (#34530).
 
