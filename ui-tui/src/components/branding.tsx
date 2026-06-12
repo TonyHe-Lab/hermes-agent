@@ -90,10 +90,11 @@ export function Banner({ maxWidth, t }: { maxWidth?: number; t: Theme }) {
     return null
   }
 
+  const logoHidden = t.bannerLogo === ''  // tony-branding-patch
   const logoLines = logo(t.color, t.bannerLogo || undefined)
   const logoW = t.bannerLogo ? artWidth(logoLines) : LOGO_WIDTH
 
-  if (cols >= logoW + 2) {
+  if (!logoHidden && cols >= logoW + 2) {
     return (
       <Box flexDirection="column" marginBottom={1}>
         <ArtLines lines={logoLines} />
@@ -161,8 +162,10 @@ export function SessionPanel({ info, maxWidth, sid, t }: SessionPanelProps) {
   const term = useStdout().stdout?.columns ?? 100
   const cols = Math.max(20, Math.min(term, maxWidth ?? term))
   const heroLines = caduceus(t.color, t.bannerHero || undefined)
-  const leftW = Math.min((artWidth(heroLines) || CADUCEUS_WIDTH) + 4, Math.floor(cols * 0.4))
-  const wide = cols >= 90 && leftW + 40 < cols
+  const heroHidden = t.bannerHero === ''  // tony-branding-patch
+  const heroArtWidth = artWidth(heroLines) || CADUCEUS_WIDTH
+  const leftW = Math.min(heroArtWidth + 4, Math.floor(cols * 0.4))
+  const wide = cols >= 90 && leftW + 40 < cols && !heroHidden
   const w = Math.max(20, wide ? cols - leftW - 14 : cols - 12)
   const lineBudget = Math.max(12, w - 2)
   const strip = (s: string) => (s.endsWith('_tools') ? s.slice(0, -6) : s)

@@ -3683,7 +3683,12 @@ def resolve_provider_client(
                     openai_base = _to_openai_base_url(custom_base)
                     raw_base_for_wrap = custom_base
                 _clean_base2, _dq2 = _extract_url_query_params(openai_base)
-                _extra2 = {"default_query": _dq2} if _dq2 else {}
+                _extra2 = {}
+                if _dq2:
+                    _extra2["default_query"] = _dq2
+                # azure-openai-deployments-patch: inject api-key header for Azure gateways
+                if "/openai/deployments/" in str(raw_base_for_wrap).lower():
+                    _extra2["default_headers"] = {"api-key": custom_key}
                 _headers2 = _apply_user_default_headers(_extra2.get("default_headers"))
                 if _headers2:
                     _extra2["default_headers"] = _headers2
@@ -4312,9 +4317,13 @@ def auxiliary_max_tokens_param(value: int) -> dict:
     or_key = os.getenv("OPENROUTER_API_KEY")
     # Use max_completion_tokens for direct OpenAI-compatible providers that reject
     # max_tokens on newer GPT-4o/o-series/GPT-5-style models.
+    # azure-openai-max-completion-tokens-patch: also match Azure gateways on
+    # non-azure.com domains (e.g. SHS) with /openai/deployments/ paths.
+    _is_deployments_gateway = custom_base and "/openai/deployments/" in str(custom_base).lower()
     if (not or_key
             and _read_nous_auth() is None
-            and base_url_hostname(custom_base) in {"api.openai.com", "api.githubcopilot.com"}):
+            and (base_url_hostname(custom_base) in {"api.openai.com", "api.githubcopilot.com"}
+                 or _is_deployments_gateway)):
         return {"max_completion_tokens": value}
     return {"max_tokens": value}
 

@@ -60,12 +60,12 @@ def _skin_color(key: str, fallback: str) -> str:
 
 from hermes_cli import __version__ as VERSION, __release_date__ as RELEASE_DATE
 
-HERMES_AGENT_LOGO = """[bold #FFD700]██╗  ██╗███████╗██████╗ ███╗   ███╗███████╗███████╗       █████╗  ██████╗ ███████╗███╗   ██╗████████╗[/]
-[bold #FFD700]██║  ██║██╔════╝██╔══██╗████╗ ████║██╔════╝██╔════╝      ██╔══██╗██╔════╝ ██╔════╝████╗  ██║╚══██╔══╝[/]
-[#FFBF00]███████║█████╗  ██████╔╝██╔████╔██║█████╗  ███████╗█████╗███████║██║  ███╗█████╗  ██╔██╗ ██║   ██║[/]
-[#FFBF00]██╔══██║██╔══╝  ██╔══██╗██║╚██╔╝██║██╔══╝  ╚════██║╚════╝██╔══██║██║   ██║██╔══╝  ██║╚██╗██║   ██║[/]
-[#CD7F32]██║  ██║███████╗██║  ██║██║ ╚═╝ ██║███████╗███████║      ██║  ██║╚██████╔╝███████╗██║ ╚████║   ██║[/]
-[#CD7F32]╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝╚══════╝╚══════╝      ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝   ╚═╝[/]"""
+HERMES_AGENT_LOGO = """[bold #FFD700]████████╗ ██████╗ ███╗   ██╗██╗   ██╗     ██╗  ██╗███████╗[/]
+[bold #FFD700]╚══██╔══╝██╔═══██╗████╗  ██║╚██╗ ██╔╝     ██║  ██║██╔════╝[/]
+[#FFBF00]   ██║   ██║   ██║██╔██╗ ██║ ╚████╔╝█████╗███████║█████╗  [/]
+[#FFBF00]   ██║   ██║   ██║██║╚██╗██║  ╚██╔╝ ╚════╝██╔══██║██╔══╝  [/]
+[#CD7F32]   ██║   ╚██████╔╝██║ ╚████║   ██║        ██║  ██║███████╗[/]
+[#CD7F32]   ╚═╝    ╚═════╝ ╚═╝  ╚═══╝   ╚═╝        ╚═╝  ╚═╝╚══════╝[/]"""  # tony-branding-patch
 
 HERMES_CADUCEUS = """[#CD7F32]⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⣀⡀⠀⣀⣀⠀⢀⣀⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀[/]
 [#CD7F32]⠀⠀⠀⠀⠀⠀⢀⣠⣴⣾⣿⣿⣇⠸⣿⣿⠇⣸⣿⣿⣷⣦⣄⡀⠀⠀⠀⠀⠀⠀[/]
@@ -422,7 +422,7 @@ def get_latest_release_tag(repo_dir: Optional[Path] = None) -> Optional[tuple]:
 
 def format_banner_version_label() -> str:
     """Return the version label shown in the startup banner title."""
-    base = f"Hermes Agent v{VERSION} ({RELEASE_DATE})"
+    base = f"Tony Agent v{VERSION} ({RELEASE_DATE})"
     state = get_git_banner_state()
     if not state:
         return base
@@ -550,7 +550,7 @@ def build_welcome_banner(console: "Console", model: str, cwd: str,
     try:
         from hermes_cli.skin_engine import get_active_skin
         _bskin = get_active_skin()
-        _hero = _bskin.banner_hero if hasattr(_bskin, 'banner_hero') and _bskin.banner_hero else HERMES_CADUCEUS
+        _hero = _bskin.banner_hero if _bskin.banner_hero is not None else HERMES_CADUCEUS  # quiet-banner-patch
     except Exception:
         _bskin = None
         _hero = HERMES_CADUCEUS
@@ -749,6 +749,18 @@ def build_welcome_banner(console: "Console", model: str, cwd: str,
     title_color = _skin_color("banner_title", "#FFD700")
     border_color = _skin_color("banner_border", "#CD7F32")
     version_label = format_banner_version_label()
+
+    # copilot-skin-patch: allow skins to override Panel title
+    _title_fmt = _bskin.get_branding("title_format") if _bskin else ""
+    if _title_fmt:
+        try:
+            display_title = _title_fmt.format(
+                version=VERSION, release_date=RELEASE_DATE, version_label=version_label,
+            )
+        except (KeyError, ValueError):
+            display_title = version_label
+    else:
+        display_title = version_label
     release_info = get_latest_release_tag()
     if release_info:
         _tag, _url = release_info
@@ -765,7 +777,16 @@ def build_welcome_banner(console: "Console", model: str, cwd: str,
     console.print()
     term_width = shutil.get_terminal_size().columns
     if term_width >= 95:
-        _logo = _bskin.banner_logo if _bskin and hasattr(_bskin, 'banner_logo') and _bskin.banner_logo else HERMES_AGENT_LOGO
+        _logo = _bskin.banner_logo if _bskin and _bskin.banner_logo is not None else HERMES_AGENT_LOGO  # quiet-banner-patch
+        # copilot-skin-patch: support {version}, {release_date} placeholders
+        if _logo and ("{version}" in _logo or "{release_date}" in _logo):
+            try:
+                _logo = _logo.format(version=VERSION, release_date=RELEASE_DATE)
+            except (KeyError, ValueError):
+                pass
         console.print(_logo)
         console.print()
+    # quiet-banner-patch: skip info panel when hero is explicitly empty
+    if not _hero:
+        return
     console.print(outer_panel)

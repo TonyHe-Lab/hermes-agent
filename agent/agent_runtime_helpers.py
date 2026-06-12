@@ -1487,6 +1487,16 @@ def switch_model(agent, new_model, new_provider, api_key='', base_url='', api_mo
                 "api_key": effective_key,
                 "base_url": effective_base,
             }
+            # azure-openai-deployments-patch: extract query params + inject api-key header
+            if "/openai/deployments/" in str(effective_base).lower():
+                from urllib.parse import urlparse, parse_qs, urlunparse
+                _parsed = urlparse(effective_base)
+                if _parsed.query:
+                    _clean = urlunparse(_parsed._replace(query=""))
+                    _dq = {k: v[0] for k, v in parse_qs(_parsed.query).items()}
+                    agent._client_kwargs["base_url"] = _clean
+                    agent._client_kwargs["default_query"] = _dq
+                agent._client_kwargs["default_headers"] = {"api-key": effective_key}
             _sm_timeout = get_provider_request_timeout(agent.provider, agent.model)
             if _sm_timeout is not None:
                 agent._client_kwargs["timeout"] = _sm_timeout

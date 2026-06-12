@@ -1257,6 +1257,12 @@ class AIAgent:
         """
         if self._is_direct_openai_url() or self._is_azure_openai_url() or self._is_github_copilot_url():
             return {"max_completion_tokens": value}
+        # azure-openai-max-completion-tokens-patch: Azure gateways (e.g. SHS)
+        # hosted on non-azure.com domains with /openai/deployments/ paths also
+        # require max_completion_tokens for GPT-5.x models.
+        _base = getattr(self, "_base_url_lower", "") or ""
+        if "/openai/deployments/" in _base:
+            return {"max_completion_tokens": value}
         return {"max_tokens": value}
 
     @staticmethod
@@ -3794,6 +3800,11 @@ class AIAgent:
             self._client_kwargs["default_headers"] = _codex_cloudflare_headers(
                 self._client_kwargs.get("api_key", "")
             )
+        elif "/openai/deployments/" in base_url.lower():
+            # azure-openai-deployments-patch: inject api-key header
+            _existing = self._client_kwargs.get("default_headers") or {}
+            _existing["api-key"] = self._client_kwargs.get("api_key", "")
+            self._client_kwargs["default_headers"] = _existing
         else:
             # No URL-specific headers — check profile.default_headers before clearing.
             _ph_headers = None
