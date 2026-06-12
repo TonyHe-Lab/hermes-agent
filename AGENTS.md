@@ -4,6 +4,14 @@ Instructions for AI coding assistants and developers working on the hermes-agent
 
 **Never give up on the right solution.**
 
+## Response Style Hard Rules
+
+- Do not append suggestions, next steps, recommendations, offers, or hedging prompts such as "if you want", "I can", "would you like", "next", or equivalent soft endings.
+- When answering, give only the requested result, conclusion, or directly relevant facts.
+- If the user did not ask for advice, do not offer advice.
+- If a task is complete, state it as complete; do not ask follow-up questions unless the task is blocked by missing required information.
+- Keep the tone direct and concise.
+
 ## Development Environment
 
 ```bash
