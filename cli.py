@@ -3552,6 +3552,10 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
         self._background_tasks: Dict[str, threading.Thread] = {}
         self._background_task_counter = 0
 
+        # ZAI/GLM quota cache for status bar (zai-quota-statusbar-patch)
+        self._zai_quota_data: Optional[Dict[str, Any]] = None
+        self._zai_quota_fetched_at: float = 0.0
+
     def _claim_active_session(self, surface: str = "cli", *, stderr: bool = False) -> bool:
         """Claim a global active-session slot for this CLI process."""
         if self._active_session_lease is not None:
@@ -3833,6 +3837,22 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
         idle = max(0.0, time.time() - last_finished_at)
         return f"✓ {format_duration_compact(idle)}"
 
+    def _get_zai_quota(self) -> Dict[str, Any]:
+        """Fetch Z.AI/GLM Coding Plan quota with 5-minute cache."""
+        import subprocess as _sp
+        now = time.monotonic()
+        cache_ttl = 300
+        if self._zai_quota_data is not None and (now - self._zai_quota_fetched_at) < cache_ttl:
+            return self._zai_quota_data or {}
+        try:
+            script = os.path.join(get_hermes_home(), "scripts", "zai-quota.py")
+            result = _sp.run([sys.executable, script], capture_output=True, text=True, timeout=8)
+            self._zai_quota_data = json.loads(result.stdout) if result.returncode == 0 and result.stdout.strip() else {}
+        except Exception:
+            self._zai_quota_data = {}
+        self._zai_quota_fetched_at = now
+        return self._zai_quota_data or {}
+
     def _get_status_bar_snapshot(self) -> Dict[str, Any]:
         # Prefer the agent's model name — it updates on fallback.
         # self.model reflects the originally configured model and never
@@ -3925,6 +3945,14 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
             snapshot["compressions"] = getattr(compressor, "compression_count", 0) or 0
             if context_length:
                 snapshot["context_percent"] = max(0, min(100, round((context_tokens / context_length) * 100)))
+
+        # Z.AI/GLM quota (only for ZAI provider, cached 5 min)
+        provider = getattr(agent, "provider", "") or getattr(self, "provider", "") or ""
+        if "zai" in provider or "glm" in provider:
+            zq = self._get_zai_quota()
+            if zq and not zq.get("error"):
+                snapshot["zai_tokens_used_pct"] = zq.get("tokens_used_pct")
+                snapshot["zai_reset_in"] = zq.get("tokens_reset_in", "")
 
         return snapshot
 
@@ -4174,6 +4202,13 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
             idle_since = snapshot.get("idle_since")
             if idle_since:
                 parts.append(idle_since)
+            zai_pct = snapshot.get("zai_tokens_used_pct")
+            zai_reset = snapshot.get("zai_reset_in", "")
+            if zai_pct is not None:
+                zai_label = f"⚡{zai_pct}%"
+                if zai_reset:
+                    zai_label += f" · {zai_reset}"
+                parts.append(zai_label)
             if yolo_active:
                 parts.append("⚠ YOLO")
             return self._trim_status_bar_text(" │ ".join(parts), width)
@@ -4280,11 +4315,22 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
                     if prompt_elapsed:
                         frags.append(("class:status-bar-dim", " │ "))
                         frags.append(("class:status-bar-dim", prompt_elapsed))
-                    # Position 8: idle time since the last final agent response
+                    # idle time since the last final agent response
                     idle_since = snapshot.get("idle_since")
                     if idle_since:
                         frags.append(("class:status-bar-dim", " │ "))
                         frags.append(("class:status-bar-dim", idle_since))
+                    # Z.AI/GLM quota (5h window used% + reset countdown)
+                    zai_pct = snapshot.get("zai_tokens_used_pct")
+                    zai_reset = snapshot.get("zai_reset_in", "")
+                    if zai_pct is not None:
+                        zai_style = ("class:status-bar-bad" if zai_pct >= 80
+                                     else "class:status-bar-warn" if zai_pct >= 60
+                                     else "class:status-bar-dim")
+                        frags.append(("class:status-bar-dim", " │ "))
+                        frags.append((zai_style, f"⚡{zai_pct}%"))
+                        if zai_reset:
+                            frags.append(("class:status-bar-dim", f" · {zai_reset}"))
                     if yolo_active:
                         frags.append(("class:status-bar-dim", " │ "))
                         frags.append(("class:status-bar-yolo", "⚠ YOLO"))

@@ -1233,10 +1233,17 @@ def try_activate_fallback(agent, reason: "FailoverReason | None" = None) -> bool
             fb_headers = getattr(fb_client, "_custom_headers", None)
             if not fb_headers:
                 fb_headers = getattr(fb_client, "default_headers", None)
+            # azure-openai-deployments-patch: preserve default_query (e.g.
+            # api-version for Azure gateways) — without it, per-request client
+            # rebuilds lose api-version, causing 404 from Azure gateways.
+            fb_query = getattr(fb_client, "_custom_query", None)
+            if not fb_query:
+                fb_query = getattr(fb_client, "default_query", None)
             agent._client_kwargs = {
                 "api_key": fb_client.api_key,
                 "base_url": fb_base_url,
                 **({"default_headers": dict(fb_headers)} if fb_headers else {}),
+                **({"default_query": dict(fb_query)} if fb_query else {}),
             }
             if _fb_timeout is not None:
                 agent._client_kwargs["timeout"] = _fb_timeout
