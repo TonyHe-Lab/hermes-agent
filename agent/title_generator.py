@@ -61,8 +61,10 @@ def generate_title(
             client, resolved_model = resolve_provider_client(
                 main_runtime.get("provider"),
                 main_runtime.get("model"),
-                base_url=main_runtime.get("base_url"),
-                api_key=main_runtime.get("api_key"),
+                # title-generator-kwarg-fix: resolve_provider_client expects
+                # explicit_base_url / explicit_api_key, not base_url / api_key
+                explicit_base_url=main_runtime.get("base_url"),
+                explicit_api_key=main_runtime.get("api_key"),
                 api_mode=main_runtime.get("api_mode"),
                 main_runtime=main_runtime,
             )

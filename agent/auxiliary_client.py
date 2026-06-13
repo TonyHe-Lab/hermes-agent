@@ -116,12 +116,22 @@ def _safe_isinstance(obj: Any, maybe_type: Any) -> bool:
 
 
 def _extract_url_query_params(url: str):
-    """Extract query params from URL, return (clean_url, default_query dict or None)."""
+    """Extract query params from URL, return (clean_url, default_query dict or None).
+
+    The returned clean URL always ends with ``/`` when the path is non-empty,
+    because the OpenAI Python SDK appends endpoint paths (``chat/completions``)
+    without a leading ``/`` — a missing trailing slash would corrupt the URL
+    (e.g. ``/deployments/modelchat/completions``).
+    """
     parsed = urlparse(url)
     if parsed.query:
         clean = urlunparse(parsed._replace(query=""))
         params = {k: v[0] for k, v in parse_qs(parsed.query).items()}
+        if clean and not clean.endswith("/"):
+            clean += "/"
         return clean, params
+    if url and not url.endswith("/"):
+        url += "/"
     return url, None
 
 
@@ -3288,6 +3298,11 @@ def _to_async_client(sync_client, model: str, is_vision: bool = False):
         "api_key": sync_client.api_key,
         "base_url": str(sync_client.base_url),
     }
+    # auxiliary-vision-azure-fix: preserve default_query (e.g. api-version
+    # for Azure gateways) when converting sync→async client.
+    sync_dq = getattr(sync_client, "default_query", None)
+    if sync_dq:
+        async_kwargs["default_query"] = dict(sync_dq)
     sync_base_url = str(sync_client.base_url)
     if base_url_host_matches(sync_base_url, "openrouter.ai"):
         async_kwargs["default_headers"] = build_or_headers()
@@ -3318,6 +3333,12 @@ def _to_async_client(sync_client, model: str, is_vision: bool = False):
     _merged_async = _apply_user_default_headers(async_kwargs.get("default_headers"))
     if _merged_async:
         async_kwargs["default_headers"] = _merged_async
+    # auxiliary-vision-azure-fix: preserve sync client's default_headers
+    # (e.g. api-key for Azure gateways) when async_kwargs has none.
+    if "default_headers" not in async_kwargs:
+        sync_dh = getattr(sync_client, "default_headers", None)
+        if sync_dh:
+            async_kwargs["default_headers"] = dict(sync_dh)
     return AsyncOpenAI(**async_kwargs), model
 
 
@@ -4734,6 +4755,12 @@ def _resolve_task_provider_model(
     if cfg_provider:
         cfg_provider, cfg_base_url = _expand_direct_api_alias(cfg_provider, cfg_base_url)
 
+    if base_url and provider:
+        # auxiliary-vision-azure-fix: keep the provider name so
+        # resolve_provider_client can look up credentials from the named
+        # custom-providers entry (e.g. key_env) rather than routing through
+        # the bare "custom" branch that has no credential resolution.
+        return provider, resolved_model, base_url, api_key, resolved_api_mode
     if base_url:
         return "custom", resolved_model, base_url, api_key, resolved_api_mode
     if provider:
